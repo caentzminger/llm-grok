@@ -5,11 +5,23 @@ import llm
 from pydantic import Field
 from typing import Optional
 
-DEFAULT_MODEL = "grok-beta"
+DEFAULT_MODEL = "grok-3-mini"
+
+GROK_MODELS = [
+    "grok-2",
+    "grok-2-vision",
+    "grok-3",
+    "grok-3-fast",
+    "grok-3-mini",
+    "grok-3-mini-fast",
+]
+
 
 @llm.hookimpl
 def register_models(register):
-    register(Grok(DEFAULT_MODEL))
+    for model in GROK_MODELS:
+        register(Grok(model))
+
 
 class Grok(llm.Model):
     can_stream = True
@@ -19,8 +31,7 @@ class Grok(llm.Model):
     class Options(llm.Options):
         temperature: Optional[float] = Field(
             description=(
-                "Determines the sampling temperature. Higher values like 0.8 increase randomness, "
-                "while lower values like 0.2 make the output more focused and deterministic."
+                "Determines the sampling temperature. Higher values like 0.8 increase randomness, while lower values like 0.2 make the output more focused and deterministic."
             ),
             ge=0,
             le=1,
@@ -37,15 +48,22 @@ class Grok(llm.Model):
 
     def build_messages(self, prompt, conversation):
         messages = []
-        
+
         if prompt.system:
-            messages.append({"role": "system", "content": prompt.system})
+            messages.append(
+                {
+                    "role": "system",
+                    "content": prompt.system,
+                },
+            )
         else:
-            messages.append({
-                "role": "system", 
-                "content": "You are Grok, a chatbot inspired by the Hitchhikers Guide to the Galaxy."
-            })
-        
+            messages.append(
+                {
+                    "role": "system",
+                    "content": "You are Grok, a chatbot inspired by the Hitchhikers Guide to the Galaxy.",
+                },
+            )
+
         if conversation:
             for prev_response in conversation.responses:
                 if prev_response.prompt.system:
@@ -55,9 +73,7 @@ class Grok(llm.Model):
                 messages.append(
                     {"role": "user", "content": prev_response.prompt.prompt}
                 )
-                messages.append(
-                    {"role": "assistant", "content": prev_response.text()}
-                )
+                messages.append({"role": "assistant", "content": prev_response.text()})
 
         messages.append({"role": "user", "content": prompt.prompt})
         return messages
@@ -67,7 +83,9 @@ class Grok(llm.Model):
         messages = self.build_messages(prompt, conversation)
         response._prompt_json = {"messages": messages}
 
-        if not hasattr(prompt, 'options') or not isinstance(prompt.options, self.Options):
+        if not hasattr(prompt, "options") or not isinstance(
+            prompt.options, self.Options
+        ):
             options = self.Options()
         else:
             options = prompt.options
@@ -101,17 +119,22 @@ class Grok(llm.Model):
                         r.raise_for_status()
                         for chunk in r.iter_raw():
                             if chunk:
-                                buffer += chunk.decode('utf-8')
-                                while '\n\n' in buffer:
-                                    message, buffer = buffer.split('\n\n', 1)
-                                    if message.startswith('data: '):
+                                buffer += chunk.decode("utf-8")
+                                while "\n\n" in buffer:
+                                    message, buffer = buffer.split("\n\n", 1)
+                                    if message.startswith("data: "):
                                         data = message[6:]
-                                        if data == '[DONE]':
+                                        if data == "[DONE]":
                                             break
                                         try:
                                             parsed = json.loads(data)
-                                            if "choices" in parsed and parsed["choices"]:
-                                                delta = parsed["choices"][0].get("delta", {})
+                                            if (
+                                                "choices" in parsed
+                                                and parsed["choices"]
+                                            ):
+                                                delta = parsed["choices"][0].get(
+                                                    "delta", {}
+                                                )
                                                 if "content" in delta:
                                                     content = delta["content"]
                                                     if content:
@@ -133,12 +156,13 @@ class Grok(llm.Model):
                         yield response_data["choices"][0]["message"]["content"]
         except httpx.HTTPError as e:
             error_body = None
-            if hasattr(e, 'response') and e.response is not None:
+            if hasattr(e, "response") and e.response is not None:
                 try:
                     error_body = e.response.json()
                 except:
                     error_body = e.response.text
             raise Exception(f"API Error: {str(e)}\nResponse: {error_body}")
+
 
 @llm.hookimpl
 def register_commands(cli):
@@ -149,4 +173,7 @@ def register_commands(cli):
     @grok.command()
     def models():
         "Show available Grok models"
-        click.echo(f"Available models: {DEFAULT_MODEL}")
+        click.echo("Available models:")
+        for model in GROK_MODELS:
+            click.echo(f"- {model}")
+        click.echo(f"Default model: {DEFAULT_MODEL}")
